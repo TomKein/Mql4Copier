@@ -1,0 +1,10 @@
+﻿  main.cpp
+LINK : warning LNK4075: не учитывается "/INCREMENTAL" из-за спецификации "/OPT:ICF"
+  PocoFoundationmt.lib(NamedMutex.obj) : найден .netmodule MSIL или модуль, откомпилированный с параметром /GL; перезапускается компоновка с параметром /LTCG; добавьте /LTCG в командную строку компоновки для повышения производительности компоновщика
+LINK : warning LNK4075: эх єўшЄ√трхЄё  "/INCREMENTAL" шч-чр ёяхЎшЇшърЎшш "/LTCG"
+     ╤ючфрхЄё  сшсышюЄхър C:\Users\TomKein\Documents\GitHub\FairForex\Test\Release\testMQL4.lib ш юс·хъЄ C:\Users\TomKein\Documents\GitHub\FairForex\Test\Release\testMQL4.exp
+testMQL4.exp : warning LNK4070: фшЁхъЄштр /OUT:dll_vscode.dll т .EXP юЄышўрхЄё  юЄ шьхэш т√їюфэюую Їрщыр "C:\Users\TomKein\Documents\GitHub\FairForex\Test\Release\testMQL4.dll"; фшЁхъЄштр шуэюЁшЁєхЄё
+  ╤ючфрэшх ъюфр
+  ╤ючфрэшх ъюфр чртхЁ°хэю
+testMQL4.exp : warning LNK4070: фшЁхъЄштр /OUT:dll_vscode.dll т .EXP юЄышўрхЄё  юЄ шьхэш т√їюфэюую Їрщыр "C:\Users\TomKein\Documents\GitHub\FairForex\Test\Release\testMQL4.dll"; фшЁхъЄштр шуэюЁшЁєхЄё
+  testMQL4.vcxproj -> C:\Users\TomKein\Documents\GitHub\FairForex\Test\Release\testMQL4.dll
