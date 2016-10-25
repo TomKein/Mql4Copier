@@ -3,11 +3,15 @@
 
 #include "Poco/NamedMutex.h"
 
+#define SYMBOL_LENGTH	16
+#define COMMENT_LENGTH	32
+#define MAX_ORDER_COUNT	200
+
 struct FxcOrder
 {
 	int			ticket;
 	int			magic;
-	wchar_t		symbol[16];
+	wchar_t		symbol[SYMBOL_LENGTH];
 	int			type;
 	double		lots;
 	double		openprice;
@@ -20,7 +24,7 @@ struct FxcOrder
 	double		profit;
 	double		comission;
 	double		swap;
-	wchar_t		comment[32];
+	wchar_t		comment[COMMENT_LENGTH];
 };
 
 //—труктура дл€ передачи строк
@@ -60,8 +64,8 @@ MqlOrder actList[64];
 
 
 #pragma data_seg ("shared")
-FxcOrder orders[200] = { 0 };
-FxcOrder orders_old[200] = { 0 };
+FxcOrder orders[MAX_ORDER_COUNT] = { 0 };
+FxcOrder orders_old[MAX_ORDER_COUNT] = { 0 };
 int ordersCount = 0;
 int ordersTotal = 0;
 bool ordersValid = false;
@@ -70,6 +74,12 @@ bool transmitterBusy = false;
 #pragma comment(linker, "/SECTION:shared,RWS")
 
 namespace fxc {
+	/// опируем строку с++ в MQLSting (на стороне MQL больше ничего делать не надо)
+	inline void writeMqlString(MqlString dest, wchar_t* source) {
+		int len = min(wcslen(source), dest.size - 1);  //ќпредел€ем длину строки (небольше распределенного буфера)
+		wcscpy_s(dest.buffer, len + 1, source);  // опируем включа€ терминирующий ноль
+		*(((int*)dest.buffer) - 1) = len;  // «аписываем длину строки (хак, может изменитьс€ в будующих верси€х терминала)
+	}
 
 
 	//+------------------------------------------------------------------+
@@ -90,6 +100,13 @@ namespace fxc {
 
 	int ffc_Init() {
 		if (!is_init) {
+			if (AllocConsole()) {
+				freopen("CONOUT$", "w", stdout);
+				freopen("conout$", "w", stderr);
+				SetConsoleOutputCP(CP_UTF8);// GetACP());
+				SetConsoleCP(CP_UTF8);
+				std::cout << "DLL inited.\r\n";
+			}
 			is_init = true; 
 			return 1;
 		}
@@ -103,56 +120,47 @@ namespace fxc {
 
 		//memcpy(orders_old, orders, sizeof(orders));
 
-		orders[ordersCount] = { OrderTicket, magic, L"", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
+		orders[ordersCount] = { OrderTicket, magic, L"default", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
 
-		wcscpy_s(orders[ordersCount].symbol, OrderSymbol);
-		wcscpy_s(orders[ordersCount].comment, OrderComment);
+		wcscpy_s(orders[ordersCount].symbol, SYMBOL_LENGTH, OrderSymbol);
+		wcscpy_s(orders[ordersCount].comment, COMMENT_LENGTH, OrderComment);
+		
+
+		std::wcout << "order #" << ordersCount << " " << OrderTicket << " " << orders[ordersCount].symbol << "\r\n";
 		ordersCount++;
-
-		std::cout << "order[] - " << orders << "\r\n";
 	}
 
-	void ffc_setOrderInfo(MqlOrder* pntr, int _index) {
-		if (AllocConsole()) {
-			freopen("CONOUT$", "w", stdout);
-			freopen("conout$", "w", stderr);
-			SetConsoleOutputCP(CP_UTF8);// GetACP());
-			SetConsoleCP(CP_UTF8);
+	int ffc_UpdateMasterArray(MqlOrder* master_array) {
+		std::wcout << "ffc_UpdateMasterArray() orders count: " << ordersTotal << "\r\n";
+		for (int i = 0; i < ordersTotal; i++) {
+			MqlOrder* copy_order = master_array + i;
+			FxcOrder* master_order = orders + i;
+		
+			copy_order->ticket		= master_order->ticket;
+			copy_order->magic		= master_order->magic;
+			copy_order->type		= master_order->type;
+			copy_order->lots		= master_order->lots;
+			copy_order->openprice	= master_order->openprice;
+			copy_order->opentime	= master_order->opentime;
+			copy_order->tpprice		= master_order->tpprice;
+			copy_order->slprice		= master_order->slprice;
+			copy_order->closeprice	= master_order->closeprice;
+			copy_order->closetime	= master_order->closetime;
+			copy_order->expiration	= master_order->expiration;
+			copy_order->profit		= master_order->profit;
+			copy_order->comission	= master_order->comission;
+			copy_order->swap		= master_order->swap;
+
+			writeMqlString(copy_order->symbol, master_order->symbol);
+			writeMqlString(copy_order->comment, master_order->comment);
+
+			std::wcout << "order #" << i << " " << master_order->ticket << " (" << master_order->symbol << "->" << copy_order->symbol.buffer << ")\r\n";
 		}
-
-		//char* work = (orders + 1)->symbol;
-
-		std::cout << "Hi - " << (orders + _index)->comment << "\r\n";
-		//printf(work);
-
-		size_t s1 = sizeof((orders + _index)->comment);
-		std::cout << "Hi2 - " << s1 << "\r\n";
-
-		//pntr[_index] = { (orders+_index)->ticket, (orders + _index)->magic, 0, (orders + _index)->type, (orders + _index)->lots,(orders + _index)->openprice,(orders + _index)->opentime,(orders + _index)->tpprice,(orders + _index)->slprice,(orders + _index)->closeprice,(orders + _index)->closetime,(orders + _index)->expiration,(orders + _index)->profit,(orders + _index)->comission,(orders + _index)->swap, 0};
-		pntr->ticket	=	(orders + _index)->ticket;
-		pntr->magic = (orders + _index)->magic;
-		//fnReplaceString(pntr->symbol, (orders + _index)->symbol);
-		//wcscpy_s(pntr->symbol.buffer, s1, (orders + _index)->symbol);
-		pntr->type		=	(orders + _index)->type;
-		pntr->lots		=	(orders + _index)->lots;
-		pntr->openprice	=	(orders + _index)->openprice;
-		pntr->opentime	=	(orders + _index)->opentime;
-		pntr->tpprice	=	(orders + _index)->tpprice;
-		pntr->slprice	=	(orders + _index)->slprice;
-		pntr->closeprice =	(orders + _index)->closeprice;
-		pntr->closetime =	(orders + _index)->closetime;
-		pntr->expiration =	(orders + _index)->expiration;
-		pntr->profit	=	(orders + _index)->profit;
-		pntr->comission =	(orders + _index)->comission;
-		pntr->swap = (orders + _index)->swap;
-		//fnReplaceString(pntr->comment, (orders + _index)->comment);
-
-		//wcscpy_s(pntr->comment.buffer, pntr->comment.size, (orders + _index)->comment);
-
-
+		return ordersTotal;
 	}
 
 	int ffc_OrdersTotal() {
+		std::wcout << "ffc_OrdersTotal: " << ordersTotal << "\r\n";
 		return ordersTotal;
 	}
 
@@ -173,12 +181,13 @@ namespace fxc {
 		transmitterBusy = true;
 		ordersCount = 0;
 		ordersTotal = num;
-		//std::cout << "ordersTotal - " << ordersTotal << "\r\n";
+		std::cout << "ordersTotal - " << ordersTotal << "\r\n";
 		mutex.unlock();
 	}
 
 	void ffc_validation(bool flag) {
 		ordersValid = flag;
+		std::cout << "Orders validation: " << ordersValid << "\r\n";
 	}
 
 	int ffc_GetTicket() { // выдаем тикет(ticket_id), о котором нам хотелось бы узнать
