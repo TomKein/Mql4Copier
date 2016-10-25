@@ -9,6 +9,7 @@ ffc_validation
 ffc_Init
 ffc_DeInit
 ffc_OrdersTotal
-ffc_UpdateMasterArray
 
-fnReplaceString
+ffc_UpdateMasterArray
+ffc_CompareOrders
+ffc_ROrdersUpdate
