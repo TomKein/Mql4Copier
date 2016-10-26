@@ -47,18 +47,21 @@ int ffc_OrdersTotal();
 string ffc_getSymbol(int index);
 int ffc_getInt(int index);
 #import
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
-//+------------------------------------------------------------------+
 
 #define MAX_ORDER_COUNT 200
 
 int totalOrders = 0;
 Order master_orders[MAX_ORDER_COUNT];
-  
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
 int OnInit()
   {
-    if (!EventSetMillisecondTimer(100)) return(INIT_FAILED);
+	  if (!EventSetMillisecondTimer(100)) {
+		  Print("Ошибка запуска таймера!");
+		  return(INIT_FAILED);
+	  }
       
    if (ffc_Init() != 1) { 
       Print("Повторный запуск!");
@@ -78,7 +81,7 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    Print("Deinit");
-   EventKillTimer();
+   EventKillTimer(); //Сначала убить таймер, потом вызвать деинит dll
    ffc_DeInit();
       
   }
