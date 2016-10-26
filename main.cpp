@@ -1,7 +1,7 @@
 #include <ctime>
 #include <iostream>
-
 #include "Poco/NamedMutex.h"
+#include "utils.h"
 
 #define SYMBOL_LENGTH	16
 #define COMMENT_LENGTH	32
@@ -26,6 +26,8 @@ struct FxcOrder
 	double		swap;
 	wchar_t		comment[COMMENT_LENGTH];
 };
+
+int masterTickets[MAX_ORDER_COUNT];
 
 //Структура для передачи строк
 #pragma pack(push,1)
@@ -64,6 +66,15 @@ struct MqlOrderAction
 {
 	int			action;
 	int			ticket;
+	int			magic;
+	MqlString	symbol;   // 12 bytes
+	int			type;
+	double		lots;
+	double		openprice;
+	double		tpprice;
+	double		slprice;
+	__time64_t	expiration;
+	MqlString	comment;   // 12 bytes
 };
 
 #pragma data_seg ("shared")
@@ -76,10 +87,14 @@ bool transmitterBusy = false;
 #pragma comment(linker, "/SECTION:shared,RWS")
 
 FxcOrder orders_old[MAX_ORDER_COUNT] = { 0 };
-MqlOrderAction actionOrder[MAX_ORDER_COUNT] = { 0 };
 int ordersRCount = 0;
 
-namespace fxc {
+namespace ffc {
+
+	void openROrder(MqlOrderAction* copy_order, FxcOrder* orders_client);
+	void closeOrder(MqlOrderAction* action_order, FxcOrder* orders_client);
+
+
 	///Копируем строку с++ в MQLSting (на стороне MQL больше ничего делать не надо)
 	inline void writeMqlString(MqlString dest, wchar_t* source) {
 		int len = min(wcslen(source), dest.size - 1);  //Определяем длину строки (небольше распределенного буфера)
@@ -92,6 +107,7 @@ namespace fxc {
 	bool is_init = false;
 
 	int ffc_Init() {
+		ordersRCount = 0;
 		if (!is_init) {
 			if (AllocConsole()) {
 				freopen("CONOUT$", "w", stdout);
@@ -112,14 +128,16 @@ namespace fxc {
 		__time64_t OrderExpiration, double  OrderProfit, double  OrderCommission, double  OrderSwap, wchar_t* OrderComment) {
 
 		//memcpy(orders_old, orders, sizeof(orders));
-
-		orders[ordersCount] = { OrderTicket, magic, L"default", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
+		orders[ordersCount] = { OrderTicket, getMagic(OrderComment) , L"default", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
 
 		wcscpy_s(orders[ordersCount].symbol, SYMBOL_LENGTH, OrderSymbol);
-		wcscpy_s(orders[ordersCount].comment, COMMENT_LENGTH, OrderComment);
 
+		wchar_t s2[20];
+		_itow(OrderTicket, s2, 10);
+		wcscpy_s(orders[ordersCount].comment, COMMENT_LENGTH, L"ffc_");
+		wcscat(orders[ordersCount].comment, s2);
 
-		std::wcout << "order #" << ordersCount << " " << OrderTicket << " " << orders[ordersCount].symbol << "\r\n";
+		std::wcout << "order #" << ordersCount << " " << OrderTicket << " " << orders[ordersCount].comment << "\r\n";
 		ordersCount++;
 	}
 
@@ -199,48 +217,71 @@ namespace fxc {
 	// ----------------------- Receiver Part ----------------------------- //
 	// ------------------------------------------------------------------- //
 
-	int ffc_ROrdersUpdate(int ROrderTotal, int ROrderTicket, int Rmagic, wchar_t* ROrderSymbol, int RorderType,
+	int ffc_ROrdersUpdate(int ROrderTicket, int Rmagic, wchar_t* ROrderSymbol, int RorderType,
 		double ROrderLots, double ROrderOpenPrice, __time64_t ROrderOpenTime,
 		double ROrderTakeProfit, double ROrderStopLoss, double  ROrderClosePrice, __time64_t  ROrderCloseTime,
 		__time64_t ROrderExpiration, double  ROrderProfit, double  ROrderCommission, double  ROrderSwap, wchar_t* ROrderComment) {
 
-		orders_old[ROrderTotal] = { ROrderTicket, Rmagic, L"default", RorderType, ROrderLots, ROrderOpenPrice, ROrderOpenTime, ROrderTakeProfit, ROrderStopLoss, ROrderClosePrice, ROrderCloseTime, ROrderExpiration, ROrderProfit, ROrderCommission, ROrderSwap, L"" };
+		orders_old[ordersRCount] = { ROrderTicket, Rmagic, L"default", RorderType, ROrderLots, ROrderOpenPrice, ROrderOpenTime, ROrderTakeProfit, ROrderStopLoss, ROrderClosePrice, ROrderCloseTime, ROrderExpiration, ROrderProfit, ROrderCommission, ROrderSwap, L"" };
 
-		wcscpy_s(orders_old[ROrderTotal].symbol, SYMBOL_LENGTH, ROrderSymbol);
-		wcscpy_s(orders_old[ROrderTotal].comment, COMMENT_LENGTH, ROrderComment);
+		wcscpy_s(orders_old[ordersRCount].symbol, SYMBOL_LENGTH, ROrderSymbol);
+		wcscpy_s(orders_old[ordersRCount].comment, COMMENT_LENGTH, ROrderComment);
 
-		std::wcout << "order #" << ROrderTotal << " " << ROrderTicket << " " << orders_old[ROrderTotal].symbol << "\r\n";
-		ordersRCount = ROrderTotal;
-		return orders_old[ROrderTotal].ticket;
+		masterTickets[ordersRCount] = getMasterTicket(ROrderComment);
+
+		std::wcout << "order #" << ordersRCount << " " << ROrderTicket << " " << orders_old[ordersRCount].comment << "\r\n";
+		ordersRCount++;
+		return orders_old[ordersRCount].ticket;
 	}
 
-	void parseComment() {
-
-	}
-
-	int ffc_CompareOrders() {
+	int ffc_RGetJob(MqlOrderAction* action_array) {
 		int count = 0;
 		// сравнение (orders_old, orders) и создание структуры с действиями
+		MqlOrderAction* action_order;
 		for (int i = 0; i < ordersTotal; i++) {
-			parseComment();
-			if (orders[i].ticket == orders_old[i].ticket) { // тикет найден, сравниваем остальные данные
-				if (orders[i].tpprice != orders_old[i].tpprice || orders[i].slprice != orders_old[i].slprice) { // тикет изменен
+			action_order = action_array + count;
+			auto orders_client = orders_old + i;
+			auto orders_master = orders + i;
+			if (orders_master->ticket == masterTickets[i]) { // тикет найден, сравниваем остальные данные
+				if (orders[i].tpprice != orders_client->tpprice || orders[i].slprice != orders_client->slprice) { // тикет изменен
 					count++;
-					std::wcout << "ticket find and is changed - " << orders_old[i].ticket << "\r\n";
+					action_order->action = 3;
+					std::wcout << "ticket find and is changed - " << orders_client->ticket << "\r\n";
 				}
 				else {
-					std::wcout << "ticket is original - " << orders_old[i].ticket << "\r\n";
+					std::wcout << "ticket is original - " << orders_client->ticket << "\r\n";
 				}
-			} else if (orders[i].ticket < orders_old[i].ticket) { // тикет закрыть
+			} else if (orders_master->ticket < masterTickets[i]) { // тикет закрыть
 				count++;
-				std::wcout << "ticket is not find (close ticket) - " << orders_old[i].ticket << "\r\n";
-				actionOrder[count].action = 1;
-			} else { // тикет открыт вручную
-				std::wcout << "ticket is not find (ticket open) - " << orders_old[i].ticket << "\r\n";
-				actionOrder[count].action = 1;
+				std::wcout << "ticket is not find (close ticket) - " << orders_client->ticket << "\r\n"; 
+				closeOrder(action_order, orders_master);
+			} else { // тикет не открыт
+				count++;
+				std::wcout << "ticket is not find (ticket open) - " << orders_client->ticket << "\r\n";
+				openROrder(action_order, orders_master);
 			}
+			std::wcout << "orders_master->ticket - " << orders_master->ticket << " masterTickets - " << masterTickets[i] << "\r\n";
 		}
+		ordersRCount = 0;
 		return count;
+	}
+
+	void openROrder(MqlOrderAction* action_order, FxcOrder* order_master) {
+		action_order->action = 1;
+		action_order->ticket = order_master->ticket;
+		action_order->magic = order_master->magic;
+		action_order->type = order_master->type;
+		action_order->lots = order_master->lots;
+		action_order->openprice = order_master->openprice;
+
+		writeMqlString(action_order->symbol, order_master->symbol);
+		writeMqlString(action_order->comment, order_master->comment);
+	}
+	void closeOrder(MqlOrderAction* action_order, FxcOrder* orders_client) {
+		action_order->action = 2;
+		action_order->ticket = orders_client->ticket;
+		action_order->lots = orders_client->lots;
+		std::wcout << "orders close lots - " << action_order->lots << " ticket - " << action_order->ticket << "\r\n";
 	}
 
 

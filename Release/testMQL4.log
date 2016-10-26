@@ -1,4 +1,8 @@
-﻿  testMQL4.vcxproj -> C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.dll
+﻿  main.cpp
+     Создается библиотека C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.lib и объект C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.exp
+  Создание кода
+  Создание кода завершено
+  testMQL4.vcxproj -> C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.dll
   testMQL4.vcxproj -> C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.pdb (Full PDB)
   C:\dev\Mql4Copier\Mql4Copier\Release\testMQL4.dll
   Скопировано файлов: 1.

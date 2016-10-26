@@ -1,4 +1,3 @@
-
 EXPORTS
 ffc_OrderUpdate
 ffc_GetTicket
@@ -11,5 +10,5 @@ ffc_DeInit
 ffc_OrdersTotal
 
 ffc_UpdateMasterArray
-ffc_CompareOrders
+ffc_RGetJob
 ffc_ROrdersUpdate
