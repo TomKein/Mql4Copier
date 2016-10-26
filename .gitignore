@@ -77,3 +77,11 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# My files
+*.log
+*.pdb
+*.tlog
+*.lastbuildstate
+.gitignore
+*.opendb
