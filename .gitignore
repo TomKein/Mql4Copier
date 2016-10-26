@@ -37,6 +37,12 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+testMQL4.VC.VC.opendb
+testMQL4.VC.db
+*.log
+.gitignore
+.vs/testMQL4/v14/*
+Release/testMQL4.tlog/*
 
 # Thumbnails
 ._*

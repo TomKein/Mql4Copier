@@ -1,4 +1,3 @@
-
 EXPORTS
 ffc_OrderUpdate
 ffc_GetTicket
@@ -9,6 +8,7 @@ ffc_validation
 ffc_Init
 ffc_DeInit
 ffc_OrdersTotal
-ffc_UpdateMasterArray
 
-fnReplaceString
+ffc_UpdateMasterArray
+ffc_RGetJob
+ffc_ROrdersUpdate
