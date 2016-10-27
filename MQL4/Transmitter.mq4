@@ -61,6 +61,7 @@ void OnTick()
 void OnTimer()
   {
      int ordersCount = OrdersTotal();
+     Print("count - ",ordersCount);
      ffc_ordersCount(ordersCount);
      printf(IntegerToString(ordersCount));
       for (int i = 0; i<ordersCount; i++) {
@@ -83,6 +84,6 @@ void OnTimer()
             printf("ticket_id = " + IntegerToString(ffc_OrderSelectError(ffc_GetTicket())));
          }
       }
-      EventKillTimer();
+      //EventKillTimer();
   }
 //+------------------------------------------------------------------+
