@@ -91,9 +91,9 @@ int ordersRCount = 0;
 
 namespace ffc {
 
-	void openROrder(MqlOrderAction* copy_order, FxcOrder* orders_client);
-	void modifyROrder(MqlOrderAction* action_order, FxcOrder* order_master, int ticket);
-	void closeOrder(MqlOrderAction* action_order, FxcOrder* orders_client);
+	void openROrder(FxcOrder* orders_client);
+	void modifyROrder(FxcOrder* order_master, int ticket);
+	void closeOrder(FxcOrder* orders_client);
 
 
 	///Копируем строку с++ в MQLSting (на стороне MQL больше ничего делать не надо)
@@ -235,85 +235,18 @@ namespace ffc {
 		return ordersRCount;
 	}
 
-	int ffc_RGetJob(MqlOrderAction* action_array) {
-		MqlOrderAction* action_order;
-		int count = 0;
-		if (transmitterBusy == true) {
-			ordersRCount = 0;
-			return count;
-		}
-		int top = 0;
-		int i = 0;
-		int k = 0; // корректировка индекса клиента
-		// сравнение (orders_old, orders) и создание структуры с действиями
-		while (i < ordersTotal) {
-			action_order = action_array + count;
-			auto orders_client = orders_old + k;
-			auto orders_master = orders + i;
-			if (orders_master->ticket == masterTickets[k]) { // тикет найден, сравниваем остальные данные
-				if (orders[i].tpprice != orders_client->tpprice || orders[i].slprice != orders_client->slprice) { // тикет изменен
-					count++;
-					modifyROrder(action_order, orders_master, orders_client->ticket);
-					std::wcout << "ticket find and is changed - " << orders_client->ticket << "\r\n";
-				}
-				else {
-					std::wcout << "ticket is original - " << orders_client->ticket << "\r\n";
-				}
-			} else if (orders_master->ticket > masterTickets[k]) {
-				if (masterTickets[k] != 0) { // закрываем тикет
-					i--;
-					count++;
-					std::wcout << "ticket is not find (close ticket) - " << orders_client->ticket << "\r\n";
-					closeOrder(action_order, orders_client);
-				}
-				else { // открываем тикет
-					count++;
-					std::wcout << "ticket is not find (ticket open) - " << orders_client->ticket << "\r\n";
-					openROrder(action_order, orders_master);
-				}
-			} else { // вероятно, что тикет был закрыт вручную
-				k--;
-				//count++;
-				//std::wcout << "ticket is not find (close ticket) - " << orders_client->ticket << "\r\n";
-				//closeOrder(action_order, orders_client);
-			}
-
-			std::wcout << "orders_master->ticket - " << orders_master->ticket << " masterTickets - " << masterTickets[k] << " count client order - " << ordersRCount << "\r\n";
-			k++;
-			i++;
-		}
-
-		if ((ordersRCount - k) > 0) { // в том случае, если был закрыт последний тикет на мастере
-			for (int f = k; f < ordersRCount; f++) {
-				action_order = action_array + count;
-				auto orders_client = orders_old + f;
-				count++;
-				std::wcout << "ticket is not find (close ticket) - " << orders_client->ticket << "\r\n";
-				closeOrder(action_order, orders_client);
-			}
-		}
-
-		if (ordersTotal == 0) { // в том случае, если были закрыты все тикеты
-			for (int i = 0; i < ordersRCount; i++) {
-				action_order = action_array + count;
-				auto orders_client = orders_old + i;
-				count++;
-				std::wcout << "ticket is not find (close ticket) - " << orders_client->ticket << "\r\n";
-				closeOrder(action_order, orders_client);
-			}
-		}
-		
-		ordersRCount = 0;
-		return count;
-	}
+	
 	//---------------------------------------- Alex Way --------------------------------------------
-	MqlOrderAction* actions = null;
+	MqlOrderAction* actions = {0};
+	int actionsCount = 0;
 	void ffc_InitActions(MqlOrderAction* action_array) {
 		actions = action_array;
+		actionsCount = 0;
 		//To-do: Возможно надо перед присваиванием проверить на null, чтобы избежать случайного переопределения, тогда в деините надо будет обнулять null ом
 		//А возможно и не надо, вреда от переопределения меньше чем от не переопределения
 	}
-	int ffc_RGetJob2() {
+
+	int ffc_RGetJob() {
 		if (transmitterBusy == true) {
 			ordersRCount = 0;  //Пока не разобрался, зачем это
 			return 0;
@@ -323,7 +256,7 @@ namespace ffc {
 		while (master_index < ordersTotal) {
 			auto master_order = orders + master_index;
 			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.       я бы не надеялся не терминацию нулем, все же количество надежнее
-				addOrder(master_order);  //функция еще не написана, также нет смысла управлять списком акшинов извне, пусть эти функции сами с ними развлекаются
+				openROrder(master_order);  //функция еще не написана, также нет смысла управлять списком акшинов извне, пусть эти функции сами с ними развлекаются
 				master_index++;   //был бы цикл for, этого бы не пришлось писать :)
 				continue;  //Для простоты понимания, цепочки выполнения должны быть максимально короткими, после этого дальше просматривать код не нужно
 			}
@@ -341,9 +274,9 @@ namespace ffc {
 				master_index++;
 				continue;
 			}
-			if (master_order->ticket > masterTickets[client_index]) {
+			if (master_order->ticket > masterTickets[client_index]) { // закрылся ордер на мастере, закрываем на клиенте
 				std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";
-				closeOrder(client_order->ticket);
+				closeOrder(client_order);
 				client_index++;
 				continue;
 			}
@@ -353,43 +286,44 @@ namespace ffc {
 		for (; client_index < ordersRCount; client_index++) {
 			auto client_order = orders_old + client_index;
 			std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";
-			closeOrder(client_order->ticket);
+			closeOrder(client_order);
 		}
 		ordersRCount = 0;
-		return actionsCount();
+		return actionsCount;
 	}
 //--------------------------------------------------------------------------------------------
-	void openROrder(MqlOrderAction* action_order, FxcOrder* order_master) {
-		action_order->action = 1;
-		action_order->ticket = order_master->ticket;
-		action_order->magic = order_master->magic;
-		action_order->type = order_master->type;
-		action_order->lots = order_master->lots;
-		action_order->openprice = order_master->openprice;
+	void openROrder(FxcOrder* order_master) {
+		actions->action = 1;
+		actions->ticket = order_master->ticket;
+		actions->magic = order_master->magic;
+		actions->type = order_master->type;
+		actions->lots = order_master->lots;
+		actions->openprice = order_master->openprice;
 
-		writeMqlString(action_order->symbol, order_master->symbol);
-		writeMqlString(action_order->comment, order_master->comment);
+		writeMqlString(actions->symbol, order_master->symbol);
+		writeMqlString(actions->comment, order_master->comment);
+
+		actionsCount++;
 	}
 
-	void modifyROrder(MqlOrderAction* action_order, FxcOrder* order_master, int ticket) {
-		action_order->action = 3;
-		action_order->ticket = ticket;
-		action_order->magic = order_master->magic;
-		action_order->type = order_master->type;
-		action_order->lots = order_master->lots;
-		action_order->slprice = order_master->slprice;
-		action_order->tpprice = order_master->tpprice;
-		action_order->openprice = order_master->openprice;
-
+	void modifyROrder(FxcOrder* order_master, int ticket) {
+		actions->action = 3;
+		actions->ticket = ticket;
+		actions->slprice = order_master->slprice;
+		actions->tpprice = order_master->tpprice;
+		actionsCount++;
 	}
 
-	void closeOrder(MqlOrderAction* action_order, FxcOrder* orders_client) {
-		action_order->action = 2;
-		action_order->ticket = orders_client->ticket;
-		action_order->type = orders_client->type;
-		action_order->lots = orders_client->lots;
-		action_order->openprice = orders_client->openprice;
-		std::wcout << "orders close lots - " << action_order->lots << " ticket - " << action_order->ticket << "\r\n";
+	void closeOrder(FxcOrder* orders_client) {
+		actions->action = 2;
+		actions->ticket = orders_client->ticket;
+		actions->type = orders_client->type;
+		actions->lots = orders_client->lots;
+		actions->openprice = orders_client->openprice;
+
+		writeMqlString(actions->symbol, orders_client->symbol);
+		std::wcout << "orders close lots - " << actions->lots << " ticket - " << actions->ticket << "\r\n";
+		actionsCount++;
 	}
 
 

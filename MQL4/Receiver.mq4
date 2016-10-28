@@ -32,7 +32,8 @@ int ffc_OrdersTotal();
 string ffc_getSymbol(int index);
 int ffc_getInt(int index);
 void ffc_ROrdersCount(int orders);
-int ffc_RGetJob(OrderAction& mql_order_action[]);
+int ffc_RGetJob();
+void ffc_InitActions(OrderAction& mql_order_action[]);
 int ffc_ROrdersUpdate(int OrderTicket, int orderMagic, string OrderSymbol, int orderType,
 		double OrderLots, double OrderOpenPrice, datetime OrderOpenTime,
 		double OrderTakeProfit, double OrderStopLoss, double  OrderClosePrice, datetime  OrderCloseTime,
@@ -96,7 +97,6 @@ void OnTimer()
    int out = 0;
    int out2 = 0;
    int mode = 0;
-   double modeClose;
    double ask_price   = 0;
    double bid_price = 0;
    int ordersTotal = OrdersTotal();
@@ -117,22 +117,20 @@ void OnTimer()
    
    int action = 0;
    bool symbol_init;
-   action = ffc_RGetJob(mql_order_action);
+   ffc_InitActions(mql_order_action);
+   action = ffc_RGetJob();
    if (action>0) {
       for (int i=0; i<action; i++) {
-      modeClose = 0;
          switch (mql_order_action[i].type) {
             case 0:
             case 2:
             case 5:
                mode = MODE_ASK;
-               modeClose = Bid;
                break;
             case 1:
             case 3:
             case 4:
                mode = MODE_BID;
-               modeClose = Ask;
                break;
          }
          Alert ("index=",i," - action= ", action," - mql_action=",mql_order_action[i].action," - ticket=",mql_order_action[i].ticket);
@@ -141,21 +139,18 @@ void OnTimer()
             switch (mql_order_action[i].action) {
                case 1: // открытие нового ордера
                   ask_price   = MarketInfo(mql_order_action[i].symbol,mode); // Запрос текущей цены
-                  if ((ask_price <= mql_order_action[i].openprice && mql_order_action[i].type==0) || (ask_price >= mql_order_action[i].openprice && mql_order_action[i].type==1)) {  // расписать для buy & sell ------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                     if (ask_price == 0) {
-                        symbol_init = SymbolSelect(mql_order_action[i].symbol, 1);
-                     } else symbol_init = true;
-                     
-                     if (symbol_init) {
+                   if (ask_price == 0) {
+                     symbol_init = SymbolSelect(mql_order_action[i].symbol, 1);
+                  } else symbol_init = true;
+                  if (symbol_init && ((ask_price <= mql_order_action[i].openprice && mql_order_action[i].type==0) || (ask_price >= mql_order_action[i].openprice && mql_order_action[i].type==1))) {  // расписать для buy & sell ------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                         ask_price   = MarketInfo(mql_order_action[i].symbol,mode); // Запрос текущей цены
                         out = OrderSend(mql_order_action[i].symbol,mql_order_action[i].type,mql_order_action[i].lots,ask_price,3,0,0,mql_order_action[i].comment,mql_order_action[i].magic);
-                     }
                   } else
                   Alert ("Цена не соответствует требованиям, текущая цена = ", ask_price, " - мастер-цена = ", mql_order_action[i].openprice);
                   //Alert (GetLastError());
                   break;
                case 2: // закрытие ордера
-                  closeOrder(mql_order_action[i].type,mql_order_action[i].ticket,mql_order_action[i].lots);
+                  closeOrder(mql_order_action[i].symbol,mql_order_action[i].type,mql_order_action[i].ticket,mql_order_action[i].lots);
                   break;
                case 3: // модификация ордера
                   res = OrderModify(mql_order_action[i].ticket,mql_order_action[i].openprice,mql_order_action[i].slprice,mql_order_action[i].tpprice,0,Blue);
@@ -172,7 +167,8 @@ void OnTimer()
    
   }
   
-  void closeOrder(int type, int Ticket, double Lot) { 
+  void closeOrder(string symbol,int type, int Ticket, double Lot) { 
+  int mode = 0;
   double Price_Cls = 0;
   string Text;
    while(true)                                  // Цикл закрытия орд.
@@ -180,14 +176,15 @@ void OnTimer()
       switch(type)                        // По типу ордера
         {
          case 0 :
-            Price_Cls = Bid;          // Ордер Buy
+            mode = MODE_BID;          // Ордер Buy
             Text = "Buy ";                 // Текст для Buy
             break;                 // Из switch
          case 1: 
-            Price_Cls = Ask;                 // Ордер Sell
+            mode = MODE_ASK;                 // Ордер Sell
             Text="Sell ";                       // Текст для Sell
         }
-      Alert("Попытка закрыть ",Text," ",Ticket,". Ожидание ответа..");
+        Price_Cls = MarketInfo(symbol,mode);
+      Alert("Попытка закрыть ",Text," ",Lot," - ",Ticket,". Ожидание ответа..",symbol);
       bool Ans=OrderClose(Ticket,Lot,Price_Cls,2);// Закрытие ордера
       //--------------------------------------------------------- 8 --
       if (Ans==true)                            // Получилось :)
