@@ -78,7 +78,7 @@ struct MqlOrderAction
 };
 
 #pragma data_seg ("shared")
-FxcOrder orders[MAX_ORDER_COUNT] = { 0 };
+FxcOrder orders[MAX_ORDER_COUNT] = { 0 }; //надо бы отрефакторить в master_orders, а то уже неудобно
 int ordersCount = 0;
 int ordersTotal = 0;
 bool ordersValid = false;
@@ -228,7 +228,7 @@ namespace ffc {
 		wcscpy_s(orders_old[ordersRCount].symbol, SYMBOL_LENGTH, ROrderSymbol);
 		wcscpy_s(orders_old[ordersRCount].comment, COMMENT_LENGTH, ROrderComment);
 
-		masterTickets[ordersRCount] = getMasterTicket(ROrderComment);
+		masterTickets[ordersRCount] = getMasterTicket(ROrderComment); 
 
 		std::wcout << "order #" << ordersRCount << " " << ROrderTicket << " " << orders_old[ordersRCount].comment << "\r\n";
 		ordersRCount++;
@@ -306,7 +306,59 @@ namespace ffc {
 		ordersRCount = 0;
 		return count;
 	}
-
+	//---------------------------------------- Alex Way --------------------------------------------
+	MqlOrderAction* actions = null;
+	void ffc_InitActions(MqlOrderAction* action_array) {
+		actions = action_array;
+		//To-do: Возможно надо перед присваиванием проверить на null, чтобы избежать случайного переопределения, тогда в деините надо будет обнулять null ом
+		//А возможно и не надо, вреда от переопределения меньше чем от не переопределения
+	}
+	int ffc_RGetJob2() {
+		if (transmitterBusy == true) {
+			ordersRCount = 0;  //Пока не разобрался, зачем это
+			return 0;
+		}
+		int master_index = 0;
+		int client_index = 0; 
+		while (master_index < ordersTotal) {
+			auto master_order = orders + master_index;
+			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.       я бы не надеялся не терминацию нулем, все же количество надежнее
+				addOrder(master_order);  //функция еще не написана, также нет смысла управлять списком акшинов извне, пусть эти функции сами с ними развлекаются
+				master_index++;   //был бы цикл for, этого бы не пришлось писать :)
+				continue;  //Для простоты понимания, цепочки выполнения должны быть максимально короткими, после этого дальше просматривать код не нужно
+			}
+			auto client_order = orders_old + client_index;
+			
+			if (master_order->ticket == masterTickets[client_index]) { // тикет найден, проверяем модификацию
+				if (master_order->tpprice != client_order->tpprice || master_order->slprice != client_order->slprice) { // тикет изменен.      ---?? В начали убрали индексирование, а тут нет, исправил
+					modifyROrder(master_order, client_order->ticket);
+					std::wcout << "ticket find and is changed - " << client_order->ticket << "\r\n";
+				}
+				else {
+					std::wcout << "ticket is original - " << client_order->ticket << "\r\n";
+				}
+				client_index++;
+				master_index++;
+				continue;
+			}
+			if (master_order->ticket > masterTickets[client_index]) {
+				std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";
+				closeOrder(client_order->ticket);
+				client_index++;
+				continue;
+			}
+			//Тут остались случаи ручного закрытия ордеров на клиенте
+			master_index++;
+		}
+		for (; client_index < ordersRCount; client_index++) {
+			auto client_order = orders_old + client_index;
+			std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";
+			closeOrder(client_order->ticket);
+		}
+		ordersRCount = 0;
+		return actionsCount();
+	}
+//--------------------------------------------------------------------------------------------
 	void openROrder(MqlOrderAction* action_order, FxcOrder* order_master) {
 		action_order->action = 1;
 		action_order->ticket = order_master->ticket;
