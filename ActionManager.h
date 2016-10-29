@@ -34,9 +34,9 @@ namespace ffc {
 	};
 #pragma pack(pop,1)
 
-	int actionsCount = 0;
-	int actionsMaxCount = 0;
-	MqlAction* actions = null;
+	extern int actionsCount;
+	extern int actionsMaxCount;
+	extern MqlAction* actions;
 
 	void initActions(MqlAction* arrayPtr, int length);
 

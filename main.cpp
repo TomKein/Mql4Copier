@@ -35,6 +35,11 @@ bool transmitterInit = false;
 
 
 namespace ffc {
+
+	int actionsCount = 0;
+	int actionsMaxCount = 0;
+	MqlAction* actions = { 0 };
+
 	//---------- Transmitter part ----------------
 	bool ffc_Init() {
 		if (recieverInit) return false;  //Повторная инициализация
