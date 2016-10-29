@@ -1,126 +1,55 @@
 #include <ctime>
 #include <iostream>
+#include <thread>
 #include "Poco/NamedMutex.h"
 #include "utils.h"
+#include "ffcTypes.h"
+#include "ActionManager.h"
 
-#define SYMBOL_LENGTH	16
-#define COMMENT_LENGTH	32
 #define MAX_ORDER_COUNT	200
 
-struct FxcOrder
-{
-	int			ticket;
-	int			magic;
-	wchar_t		symbol[SYMBOL_LENGTH];
-	int			type;
-	double		lots;
-	double		openprice;
-	__time64_t	opentime;
-	double		tpprice;
-	double		slprice;
-	double		closeprice;
-	__time64_t	closetime;
-	__time64_t	expiration;
-	double		profit;
-	double		comission;
-	double		swap;
-	wchar_t		comment[COMMENT_LENGTH];
-};
 
-int masterTickets[MAX_ORDER_COUNT];
 
-//Структура для передачи строк
-#pragma pack(push,1)
-struct MqlString
-{
-	int    size;     // 4 bytes
-	wchar_t* buffer;   // 4 bytes
-	int    reserved; // 4 bytes
-};
-#pragma pack(pop,1)
-
-//Структура для передачи ордеров
-#pragma pack(push,1)
-struct MqlOrder
-{
-	int			ticket;
-	int			magic;
-	MqlString	symbol;   // 12 bytes
-	int			type;
-	double		lots;
-	double		openprice;
-	__time64_t	opentime;
-	double		tpprice;
-	double		slprice;
-	double		closeprice;
-	__time64_t	closetime;
-	__time64_t	expiration;
-	double		profit;
-	double		comission;
-	double		swap;
-	MqlString	comment;   // 12 bytes
-};
-#pragma pack(pop,1)
-
-struct MqlOrderAction
-{
-	int			action;
-	int			ticket;
-	int			magic;
-	MqlString	symbol;   // 12 bytes
-	int			type;
-	double		lots;
-	double		openprice;
-	double		tpprice;
-	double		slprice;
-	__time64_t	expiration;
-	MqlString	comment;   // 12 bytes
-};
-
+//---------- Секция общей памяти -----------------
 #pragma data_seg ("shared")
-FxcOrder orders[MAX_ORDER_COUNT] = { 0 }; //надо бы отрефакторить в master_orders, а то уже неудобно
-int ordersCount = 0;
-int ordersTotal = 0;
-bool ordersValid = false;
+FfcOrder master_orders[MAX_ORDER_COUNT] = { 0 };
+int ordersCount		= 0;
+int ordersTotal		= 0;
+bool ordersValid	= false;
 bool transmitterBusy = false;
 #pragma data_seg()
 #pragma comment(linker, "/SECTION:shared,RWS")
+//------------------------------------------------
 
-FxcOrder orders_old[MAX_ORDER_COUNT] = { 0 };
+Poco::NamedMutex mutex("ffc_mutex");
+
+//---------- Переменные ресивера -----------------
+int masterTickets[MAX_ORDER_COUNT];
+bool recieverInit = false;
+
+
+//---------- Переменные трансмиттера -------------
+FfcOrder client_orders[MAX_ORDER_COUNT] = { 0 };
 int ordersRCount = 0;
+bool transmitterInit = false;
+
 
 namespace ffc {
-
-	void openROrder(FxcOrder* orders_client);
-	void modifyROrder(FxcOrder* order_master, int ticket);
-	void closeOrder(FxcOrder* orders_client);
-
-
-	///Копируем строку с++ в MQLSting (на стороне MQL больше ничего делать не надо)
-	inline void writeMqlString(MqlString dest, wchar_t* source) {
-		int len = min(wcslen(source), dest.size - 1);  //Определяем длину строки (небольше распределенного буфера)
-		wcscpy_s(dest.buffer, len + 1, source);  //Копируем включая терминирующий ноль
-		*(((int*)dest.buffer) - 1) = len;  // Записываем длину строки (хак, может измениться в будующих версиях терминала)
-	}
-
-	Poco::NamedMutex mutex("ffc_mutex");
-
-	bool is_init = false;
-
-	int ffc_Init() {
-		ordersRCount = 0;
-		if (!is_init) {
-			if (AllocConsole()) {
-				freopen("CONOUT$", "w", stdout);
-				freopen("conout$", "w", stderr);
-				SetConsoleOutputCP(CP_UTF8);// GetACP());
-				SetConsoleCP(CP_UTF8);
-				std::cout << "DLL inited.\r\n";
-			}
-			is_init = true;
-			return 1;
+	//---------- Transmitter part ----------------
+	bool ffc_Init() {
+		if (recieverInit) return false;  //Повторная инициализация
+		recieverInit = true;
+		ordersCount = 0;
+		ordersValid = false;
+		transmitterBusy = false;
+		if (AllocConsole()) {
+			freopen("CONOUT$", "w", stdout);
+			freopen("conout$", "w", stderr);
+			SetConsoleOutputCP(CP_UTF8);// GetACP());
+			SetConsoleCP(CP_UTF8);
+			std::cout << "DLL inited.\r\n";
 		}
-		return 0;
+		return true;  //Удачная инициализация
 	}
 
 	void ffc_OrderUpdate(int OrderTicket, int magic, wchar_t* OrderSymbol, int orderType,
@@ -128,17 +57,17 @@ namespace ffc {
 		double OrderTakeProfit, double OrderStopLoss, double  OrderClosePrice, __time64_t  OrderCloseTime,
 		__time64_t OrderExpiration, double  OrderProfit, double  OrderCommission, double  OrderSwap, wchar_t* OrderComment) {
 
-		//memcpy(orders_old, orders, sizeof(orders));
-		orders[ordersCount] = { OrderTicket, getMagic(OrderComment) , L"default", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
+		transmitterBusy = true;
+		master_orders[ordersCount] = { OrderTicket, getMagic(OrderComment) , L"default", orderType, OrderLots, OrderOpenPrice, OrderOpenTime, OrderTakeProfit, OrderStopLoss, OrderClosePrice, OrderCloseTime, OrderExpiration, OrderProfit, OrderCommission, OrderSwap, L"" };
 
-		wcscpy_s(orders[ordersCount].symbol, SYMBOL_LENGTH, OrderSymbol);
+		wcscpy_s(master_orders[ordersCount].symbol, SYMBOL_LENGTH, OrderSymbol);
 
 		wchar_t s2[20];
 		_itow(OrderTicket, s2, 10);
-		wcscpy_s(orders[ordersCount].comment, COMMENT_LENGTH, L"ffc_");
-		wcscat(orders[ordersCount].comment, s2);
+		wcscpy_s(master_orders[ordersCount].comment, COMMENT_LENGTH, L"ffc_");
+		wcscat(master_orders[ordersCount].comment, s2);
 
-		std::wcout << "order #" << OrderTicket << " magic=" << orders[ordersCount].magic << " comment = " << orders[ordersCount].comment << "\r\n";
+		std::wcout << "order #" << OrderTicket << " magic=" << master_orders[ordersCount].magic << " comment = " << master_orders[ordersCount].comment << "\r\n";
 		ordersCount++;
 	}
 
@@ -146,7 +75,7 @@ namespace ffc {
 		std::wcout << "ffc_UpdateMasterArray() orders count: " << ordersTotal << "\r\n";
 		for (int i = 0; i < ordersTotal; i++) {
 			MqlOrder* copy_order = master_array + i;
-			FxcOrder* master_order = orders + i;
+			FfcOrder* master_order = master_orders + i;
 
 			copy_order->ticket = master_order->ticket;
 			copy_order->magic = master_order->magic;
@@ -177,7 +106,7 @@ namespace ffc {
 	}
 
 	int ffc_GetOrderInfo() {
-		MqlOrder mqlGetOrder[1] = { orders[ordersCount].ticket, orders[ordersCount].magic };
+		MqlOrder mqlGetOrder[1] = { master_orders[ordersCount].ticket, master_orders[ordersCount].magic };
 		return 1;
 	}
 
@@ -192,6 +121,7 @@ namespace ffc {
 
 	void ffc_validation(bool flag) {
 		ordersValid = flag;
+		transmitterBusy = false;
 		std::cout << "Orders validation: " << ordersValid << "\r\n";
 	}
 
@@ -209,7 +139,8 @@ namespace ffc {
 	}
 
 	void ffc_DeInit() {
-		is_init = false;
+		recieverInit = false;
+		transmitterBusy = false;
 	}
 
 
@@ -217,54 +148,57 @@ namespace ffc {
 	// ------------------------------------------------------------------- //
 	// ----------------------- Receiver Part ----------------------------- //
 	// ------------------------------------------------------------------- //
+	bool ffc_RInit(MqlAction* action_array, int length) {
+		if (recieverInit) return false; //Повторная инициализация
+		if (AllocConsole()) {
+			freopen("CONOUT$", "w", stdout);
+			freopen("conout$", "w", stderr);
+			SetConsoleOutputCP(CP_UTF8);// GetACP());
+			SetConsoleCP(CP_UTF8);
+			std::cout << "DLL inited.\r\n";
+		}
+		ordersRCount = 0;
+		recieverInit = true;
+		initActions(action_array, length);
+		return true; //Инициализация успешна
+	}
 
 	int ffc_ROrdersUpdate(int ROrderTicket, int Rmagic, wchar_t* ROrderSymbol, int RorderType,
 		double ROrderLots, double ROrderOpenPrice, __time64_t ROrderOpenTime,
 		double ROrderTakeProfit, double ROrderStopLoss, double  ROrderClosePrice, __time64_t  ROrderCloseTime,
 		__time64_t ROrderExpiration, double  ROrderProfit, double  ROrderCommission, double  ROrderSwap, wchar_t* ROrderComment) {
 
-		orders_old[ordersRCount] = { ROrderTicket, Rmagic, L"default", RorderType, ROrderLots, ROrderOpenPrice, ROrderOpenTime, ROrderTakeProfit, ROrderStopLoss, ROrderClosePrice, ROrderCloseTime, ROrderExpiration, ROrderProfit, ROrderCommission, ROrderSwap, L"" };
+		client_orders[ordersRCount] = { ROrderTicket, Rmagic, L"default", RorderType, ROrderLots, ROrderOpenPrice, ROrderOpenTime, ROrderTakeProfit, ROrderStopLoss, ROrderClosePrice, ROrderCloseTime, ROrderExpiration, ROrderProfit, ROrderCommission, ROrderSwap, L"" };
 
-		wcscpy_s(orders_old[ordersRCount].symbol, SYMBOL_LENGTH, ROrderSymbol);
-		wcscpy_s(orders_old[ordersRCount].comment, COMMENT_LENGTH, ROrderComment);
+		wcscpy_s(client_orders[ordersRCount].symbol, SYMBOL_LENGTH, ROrderSymbol);
+		wcscpy_s(client_orders[ordersRCount].comment, COMMENT_LENGTH, ROrderComment);
 
 		masterTickets[ordersRCount] = getMasterTicket(ROrderComment); 
 
-		std::wcout << "order #" << ordersRCount << " " << ROrderTicket << " " << orders_old[ordersRCount].comment << "\r\n";
+		std::wcout << "order #" << ordersRCount << " " << ROrderTicket << " " << client_orders[ordersRCount].comment << "\r\n";
 		ordersRCount++;
 		return ordersRCount;
 	}
 
-	
-	//---------------------------------------- Alex Way --------------------------------------------
-	MqlOrderAction* actions = {0};
-	int actionsCount = 0;
-	void ffc_InitActions(MqlOrderAction* action_array) {
-		actions = action_array;
-		actionsCount = 0;
-		//To-do: Возможно надо перед присваиванием проверить на null, чтобы избежать случайного переопределения, тогда в деините надо будет обнулять null ом
-		//А возможно и не надо, вреда от переопределения меньше чем от не переопределения
-	}
 
 	int ffc_RGetJob() {
-		if (transmitterBusy == true) {
-			ordersRCount = 0;  //Пока не разобрался, зачем это
-			return 0;
+		while (transmitterBusy) {  //ждем когда трансмиттер закончит свою работу
+			std::this_thread::sleep_for(std::chrono::milliseconds(25));  //что бы не перегружать систему
 		}
 		int master_index = 0;
 		int client_index = 0; 
 		while (master_index < ordersTotal) {
-			auto master_order = orders + master_index;
-			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.       я бы не надеялся не терминацию нулем, все же количество надежнее
-				openROrder(master_order);  //функция еще не написана, также нет смысла управлять списком акшинов извне, пусть эти функции сами с ними развлекаются
-				master_index++;   //был бы цикл for, этого бы не пришлось писать :)
-				continue;  //Для простоты понимания, цепочки выполнения должны быть максимально короткими, после этого дальше просматривать код не нужно
+			auto master_order = master_orders + master_index;
+			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.     
+				createOrder(master_order); 
+				master_index++;  
+				continue;  
 			}
-			auto client_order = orders_old + client_index;
+			auto client_order = client_orders + client_index;
 			
 			if (master_order->ticket == masterTickets[client_index]) { // тикет найден, проверяем модификацию
-				if (master_order->tpprice != client_order->tpprice || master_order->slprice != client_order->slprice) { // тикет изменен.      ---?? В начали убрали индексирование, а тут нет, исправил
-					modifyROrder(master_order, client_order->ticket);
+				if (master_order->tpprice != client_order->tpprice || master_order->slprice != client_order->slprice) { // тикет изменен.      
+					modOrder( client_order->ticket, master_order->openprice, master_order->slprice, master_order->tpprice);
 					std::wcout << "ticket find and is changed - " << client_order->ticket << "\r\n";
 				}
 				else {
@@ -280,11 +214,11 @@ namespace ffc {
 				client_index++;
 				continue;
 			}
-			//Тут остались случаи ручного закрытия ордеров на клиенте
+			createOrder(master_order);  //Открываем то что закрыто вручную или по какойто причине не смогло открыться
 			master_index++;
 		}
 		for (; client_index < ordersRCount; client_index++) {
-			auto client_order = orders_old + client_index;
+			auto client_order = client_orders + client_index;
 			std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";
 			closeOrder(client_order);
 		}
@@ -292,39 +226,4 @@ namespace ffc {
 		return actionsCount;
 	}
 //--------------------------------------------------------------------------------------------
-	void openROrder(FxcOrder* order_master) {
-		actions->action = 1;
-		actions->ticket = order_master->ticket;
-		actions->magic = order_master->magic;
-		actions->type = order_master->type;
-		actions->lots = order_master->lots;
-		actions->openprice = order_master->openprice;
-
-		writeMqlString(actions->symbol, order_master->symbol);
-		writeMqlString(actions->comment, order_master->comment);
-
-		actionsCount++;
-	}
-
-	void modifyROrder(FxcOrder* order_master, int ticket) {
-		actions->action = 3;
-		actions->ticket = ticket;
-		actions->slprice = order_master->slprice;
-		actions->tpprice = order_master->tpprice;
-		actionsCount++;
-	}
-
-	void closeOrder(FxcOrder* orders_client) {
-		actions->action = 2;
-		actions->ticket = orders_client->ticket;
-		actions->type = orders_client->type;
-		actions->lots = orders_client->lots;
-		actions->openprice = orders_client->openprice;
-
-		writeMqlString(actions->symbol, orders_client->symbol);
-		std::wcout << "orders close lots - " << actions->lots << " ticket - " << actions->ticket << "\r\n";
-		actionsCount++;
-	}
-
-
 }

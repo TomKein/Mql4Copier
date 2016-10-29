@@ -9,7 +9,7 @@
 #property strict
 
 #import "testMQL4.dll"
-int ffc_Init();
+bool ffc_Init();
 void ffc_DeInit();
 void ffc_ordersCount(int orders);
 int ffc_OrderSelectError(int ticket);
@@ -26,14 +26,9 @@ void fnReplaceString(string &text,string from,string to);
 //+------------------------------------------------------------------+
 int OnInit()
   {
-//--- create timer
    if (!EventSetMillisecondTimer(100)) return(INIT_FAILED);
       
-   if (ffc_Init() != 1) return(INIT_FAILED);
-   
-  //ffc_OrderUpdate(5961235,563,"1",0,0,0,0,0,0,0,0,0,0,0,5,"q");
-  //ffc_OrderUpdate(5783,563,"1",0,0,0,0,0,0,0,0,0,0,0,5,"dkla");
-//---
+   if (!ffc_Init()) return(INIT_FAILED);
    
    return(INIT_SUCCEEDED);
   }
@@ -42,10 +37,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-  ffc_DeInit();
-//--- destroy timer
-   EventKillTimer();
-      
+	  EventKillTimer();
+	ffc_DeInit();     
   }
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
