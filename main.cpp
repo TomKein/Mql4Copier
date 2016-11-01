@@ -36,14 +36,10 @@ bool transmitterInit = false;
 
 namespace ffc {
 
-	int actionsCount = 0;
-	int actionsMaxCount = 0;
-	MqlAction* actions = { 0 };
-
 	//---------- Transmitter part ----------------
 	bool ffc_Init() {
-		if (recieverInit) return false;  //ѕовторна€ инициализаци€
-		recieverInit = true;
+		if (transmitterInit) return false;  //ѕовторна€ инициализаци€
+		transmitterInit = true;
 		ordersCount = 0;
 		ordersValid = false;
 		transmitterBusy = false;
@@ -144,7 +140,7 @@ namespace ffc {
 	}
 
 	void ffc_DeInit() {
-		recieverInit = false;
+		transmitterInit = false;
 		transmitterBusy = false;
 	}
 
@@ -153,6 +149,12 @@ namespace ffc {
 	// ------------------------------------------------------------------- //
 	// ----------------------- Receiver Part ----------------------------- //
 	// ------------------------------------------------------------------- //
+
+
+	void ffc_RDeInit() {
+		recieverInit = false;
+	}
+
 	bool ffc_RInit(MqlAction* action_array, int length) {
 		if (recieverInit) return false; //ѕовторна€ инициализаци€
 		if (AllocConsole()) {
@@ -160,11 +162,11 @@ namespace ffc {
 			freopen("conout$", "w", stderr);
 			SetConsoleOutputCP(CP_UTF8);// GetACP());
 			SetConsoleCP(CP_UTF8);
-			std::cout << "DLL inited.\r\n";
 		}
 		ordersRCount = 0;
 		recieverInit = true;
 		initActions(action_array, length);
+		std::wcout << "Receiver inited.\r\n";
 		return true; //»нициализаци€ успешна
 	}
 
@@ -180,7 +182,7 @@ namespace ffc {
 
 		masterTickets[ordersRCount] = getMasterTicket(ROrderComment); 
 
-		std::wcout << "order #" << ordersRCount << " " << ROrderTicket << " " << client_orders[ordersRCount].comment << "\r\n";
+		std::wcout << "masterTickets #" << masterTickets[ordersRCount] << "\r\n";
 		ordersRCount++;
 		return ordersRCount;
 	}
@@ -194,8 +196,8 @@ namespace ffc {
 		int client_index = 0; 
 		while (master_index < ordersTotal) {
 			auto master_order = master_orders + master_index;
-			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.     
-				createOrder(master_order); 
+			if (client_index >= ordersRCount) {  //если на клиенте нет ордеров, то открываем.
+				createOrder(master_order);
 				master_index++;  
 				continue;  
 			}
@@ -222,6 +224,7 @@ namespace ffc {
 			createOrder(master_order);  //ќткрываем то что закрыто вручную или по какойто причине не смогло открытьс€
 			master_index++;
 		}
+
 		for (; client_index < ordersRCount; client_index++) {
 			auto client_order = client_orders + client_index;
 			std::wcout << "ticket is not find (close ticket) - " << client_order->ticket << "\r\n";

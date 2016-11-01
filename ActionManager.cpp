@@ -1,5 +1,10 @@
 #include "ActionManager.h"
 #include "utils.h"
+#include <iostream>
+
+int ffc::actionsCount = 0;
+int ffc::actionsMaxCount = 0;
+ffc::MqlAction* ffc::actions = NULL;
 
 void ffc::initActions(MqlAction* arrayPtr, int length)
 {
@@ -31,8 +36,13 @@ void ffc::createOrder(wchar_t* symbol, int type, double lots, double openPrice, 
 	writeMqlString(action->comment, comment);
 }
 void ffc::createOrder(FfcOrder* order) {
+
+	std::wcout << "Action address " << actions << "\r\n";
+
+
 	if (actionsCount + 1 >= actionsMaxCount) return;
 	auto action = actions + actionsCount;
+	std::wcout << "symbol - " << action->symbol.buffer << "\r\n";
 	actionsCount++;
 
 	action->actionId	= JOB_CREATE;
